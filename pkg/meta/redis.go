@@ -5373,7 +5373,7 @@ func (m *redisMeta) doCloneEntry(ctx Context, srcIno Ino, parent Ino, name strin
 			return eno
 		}
 		attr.Parent = parent
-		now := time.Now()
+		now := operationTime(ctx)
 		if cmode&CLONE_MODE_PRESERVE_ATTR == 0 {
 			attr.Uid = ctx.Uid()
 			attr.Gid = ctx.Gid()
@@ -5425,7 +5425,7 @@ func (m *redisMeta) doCloneEntry(ctx Context, srcIno Ino, parent Ino, name strin
 				p.HMSet(ctx, m.xattrKey(ino), srcXattr)
 			}
 			if top && attr.Typ == TypeDirectory {
-				p.ZAdd(ctx, m.detachedNodes(), redis.Z{Member: ino.String(), Score: float64(time.Now().Unix())})
+				p.ZAdd(ctx, m.detachedNodes(), redis.Z{Member: ino.String(), Score: float64(now.Unix())})
 			} else {
 				p.HSet(ctx, m.entryKey(parent), name, m.packEntry(attr.Typ, ino))
 				if top {
@@ -5481,7 +5481,7 @@ func (m *redisMeta) doCloneEntry(ctx Context, srcIno Ino, parent Ino, name strin
 				}
 				p.Set(ctx, m.symKey(ino), path, 0)
 			}
-			m.genLog(ctx, p, now, "CLONE(%d,%d,%s,%d,%d,%d,%t,%d,%d):%d", srcIno, parent, logEncode2(name), ino, cmode, cumask, top, ctx.Uid(), ctx.Gid(), ino)
+			m.genLog(ctx, p, now, "CLONE(%d,%d,%s,%d,%d,%d,%t,%d,%s):%d", srcIno, parent, logEncode2(name), ino, cmode, cumask, top, ctx.Uid(), logGids(ctx), ino)
 			return nil
 		})
 		return err
@@ -5881,7 +5881,7 @@ func (m *redisMeta) doAttachDirNode(ctx Context, parent Ino, dstIno Ino, name st
 		_, err = tx.TxPipelined(ctx, func(p redis.Pipeliner) error {
 			p.HSet(ctx, m.entryKey(parent), name, m.packEntry(TypeDirectory, dstIno))
 			pattr.Nlink++
-			now := time.Now()
+			now := operationTime(ctx)
 			pattr.Mtime = now.Unix()
 			pattr.Mtimensec = uint32(now.Nanosecond())
 			pattr.Ctime = now.Unix()
