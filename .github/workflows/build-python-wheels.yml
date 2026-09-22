@@ -72,7 +72,8 @@ jobs:
       - name: Install Python build tools
         env:
           PYTHON_COMMAND: ${{ matrix.python_command }}
-        run: "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
+        run: |
+          "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
 
       - name: Build libjfs
         env:
