@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 # The following line will be replaced by the actual version number during the Make process
-VERSION = "1.3.0"
+VERSION = "1.4.1"
 BUILD_INFO = "BUILDDATE+COMMIT HASH"
 
 
