@@ -19,14 +19,14 @@ permissions:
 
 env:
   GO_VERSION: 1.21.13
-  PACKAGE_VERSION: \${{ inputs.package_version }}
-  RELEASE_TAG: \${{ inputs.release_tag }}
+  PACKAGE_VERSION: ${{ inputs.package_version }}
+  RELEASE_TAG: ${{ inputs.release_tag }}
 
 jobs:
   build:
-    name: Build \${{ matrix.name }}
-    runs-on: \${{ matrix.runner }}
-    container: \${{ matrix.container }}
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
@@ -60,7 +60,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: \${{ env.GO_VERSION }}
+          go-version: ${{ env.GO_VERSION }}
           cache: false
 
       - name: Set up Python
@@ -71,8 +71,8 @@ jobs:
 
       - name: Install Python build tools
         env:
-          PYTHON_COMMAND: \${{ matrix.python_command }}
-        run: "\${PYTHON_COMMAND}" -m pip install --upgrade build wheel
+          PYTHON_COMMAND: ${{ matrix.python_command }}
+        run: "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
 
       - name: Build libjfs
         env:
@@ -81,10 +81,10 @@ jobs:
 
       - name: Set package version
         env:
-          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
-          PYTHON_COMMAND: \${{ matrix.python_command }}
+          PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
+          PYTHON_COMMAND: ${{ matrix.python_command }}
         run: |
-          "\${PYTHON_COMMAND}" - "\${PACKAGE_VERSION}" <<'PY'
+          "${PYTHON_COMMAND}" - "${PACKAGE_VERSION}" <<'PY'
           import sys
           from pathlib import Path
 
@@ -99,19 +99,19 @@ jobs:
 
       - name: Build wheel
         env:
-          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
-          PLATFORM_TAG: \${{ matrix.platform_tag }}
-          PYTHON_COMMAND: \${{ matrix.python_command }}
+          PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+          PYTHON_COMMAND: ${{ matrix.python_command }}
         run: |
           rm -rf dist
-          "\${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
-          "\${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "\${PLATFORM_TAG}" "dist/juicefs-\${PACKAGE_VERSION}-py3-none-any.whl"
-          test -f "dist/juicefs-\${PACKAGE_VERSION}-py3-none-\${PLATFORM_TAG}.whl"
+          "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
+          "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
+          test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${PLATFORM_TAG}.whl"
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-\${{ matrix.name }}
+          name: wheel-${{ matrix.name }}
           path: dist/*.whl
           if-no-files-found: error
 
@@ -129,25 +129,25 @@ jobs:
 
       - name: Validate wheel set
         env:
-          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
+          PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
         run: |
           for platform in manylinux2014_x86_64 manylinux2014_aarch64 macosx_11_0_arm64; do
-            test -f "dist/juicefs-\${PACKAGE_VERSION}-py3-none-\${platform}.whl"
+            test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${platform}.whl"
           done
-          test "\$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 3
+          test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 3
 
       - name: Publish release assets
         env:
-          GH_TOKEN: \${{ github.token }}
-          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
-          RELEASE_TAG: \${{ env.RELEASE_TAG }}
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          if gh release view "\${RELEASE_TAG}" --repo "\${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "\${RELEASE_TAG}" dist/*.whl --repo "\${GITHUB_REPOSITORY}" --clobber
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" dist/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
           else
-            gh release create "\${RELEASE_TAG}" dist/*.whl \
-              --repo "\${GITHUB_REPOSITORY}" \
+            gh release create "${RELEASE_TAG}" dist/*.whl \
+              --repo "${GITHUB_REPOSITORY}" \
               --target master \
-              --title "JuiceFS \${PACKAGE_VERSION}" \
-              --notes "Python SDK wheels for \${PACKAGE_VERSION}."
+              --title "JuiceFS ${PACKAGE_VERSION}" \
+              --notes "Python SDK wheels for ${PACKAGE_VERSION}."
           fi
