@@ -110,7 +110,7 @@ jobs:
               PYTHON_COMMAND="/opt/python/cp39-cp39/bin/python"
               "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
               LDFLAGS="-s -w"
-              go build -buildmode c-shared -buildvcs=false -ldflags="${LDFLAGS}" -o sdk/python/juicefs/juicefs/libjfs.so sdk/java/libjfs
+              go build -buildmode c-shared -buildvcs=false -ldflags="${LDFLAGS}" -o sdk/python/juicefs/juicefs/libjfs.so ./sdk/java/libjfs
               rm -rf dist
               "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
               "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
@@ -125,7 +125,7 @@ jobs:
           PYTHON_COMMAND: ${{ matrix.host_python_command }}
         run: |
           export CGO_ENABLED=1
-          go build -buildmode c-shared -buildvcs=false -ldflags="-s -w" -o sdk/python/juicefs/juicefs/libjfs.dylib sdk/java/libjfs
+          go build -buildmode c-shared -buildvcs=false -ldflags="-s -w" -o sdk/python/juicefs/juicefs/libjfs.dylib ./sdk/java/libjfs
           rm -rf dist
           "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
           "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
