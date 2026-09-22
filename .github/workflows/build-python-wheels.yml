@@ -26,26 +26,28 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: manylinux2014_x86_64
             runner: ubuntu-24.04
-            container: quay.io/pypa/manylinux2014_x86_64
+            build_image: quay.io/pypa/manylinux2014_x86_64
+            go_arch: amd64
             platform_tag: manylinux2014_x86_64
-            python_command: /opt/python/cp39-cp39/bin/python
+            host_python_command: python3
           - name: manylinux2014_aarch64
             runner: ubuntu-24.04-arm
-            container: quay.io/pypa/manylinux2014_aarch64
+            build_image: quay.io/pypa/manylinux2014_aarch64
+            go_arch: arm64
             platform_tag: manylinux2014_aarch64
-            python_command: /opt/python/cp39-cp39/bin/python
+            host_python_command: python3
           - name: macosx_11_0_arm64
             runner: macos-14
-            container: ""
+            build_image: ""
+            go_arch: ""
             platform_tag: macosx_11_0_arm64
-            python_command: python
+            host_python_command: python
 
     steps:
       - name: Checkout
@@ -53,11 +55,8 @@ jobs:
         with:
           ref: master
 
-      - name: Install Linux build tools
-        if: runner.os == 'Linux'
-        run: yum install -y gcc git make
-
       - name: Set up Go
+        if: runner.os == 'macOS'
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -69,21 +68,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python build tools
-        env:
-          PYTHON_COMMAND: ${{ matrix.python_command }}
-        run: |
-          "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
-
-      - name: Build libjfs
-        env:
-          CGO_ENABLED: "1"
-        run: make -C sdk/python libjfs
-
       - name: Set package version
         env:
           PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
-          PYTHON_COMMAND: ${{ matrix.python_command }}
+          PYTHON_COMMAND: ${{ matrix.host_python_command }}
         run: |
           "${PYTHON_COMMAND}" - "${PACKAGE_VERSION}" <<'PY'
           import sys
@@ -98,12 +86,45 @@ jobs:
           path.write_text(contents.replace(old, new, 1))
           PY
 
-      - name: Build wheel
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        env:
+          PYTHON_COMMAND: ${{ matrix.host_python_command }}
+        run: |
+          "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
+
+      - name: Build Linux wheel
+        if: runner.os == 'Linux'
+        env:
+          BUILD_IMAGE: ${{ matrix.build_image }}
+          GO_ARCH: ${{ matrix.go_arch }}
+          PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
+          PLATFORM_TAG: ${{ matrix.platform_tag }}
+        run: |
+          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             "${BUILD_IMAGE}"             bash -euo pipefail -c '
+              yum install -y gcc git make curl
+              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz
+              tar -C /usr/local -xzf /tmp/go.tar.gz
+              export PATH="/usr/local/go/bin:${PATH}"
+              export CGO_ENABLED=1
+              PYTHON_COMMAND="/opt/python/cp39-cp39/bin/python"
+              "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
+              make -C sdk/python libjfs
+              rm -rf dist
+              "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
+              "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
+              test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${PLATFORM_TAG}.whl"
+            '
+
+      - name: Build macOS wheel
+        if: runner.os == 'macOS'
         env:
           PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
           PLATFORM_TAG: ${{ matrix.platform_tag }}
-          PYTHON_COMMAND: ${{ matrix.python_command }}
+          PYTHON_COMMAND: ${{ matrix.host_python_command }}
         run: |
+          export CGO_ENABLED=1
+          make -C sdk/python libjfs
           rm -rf dist
           "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
           "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
