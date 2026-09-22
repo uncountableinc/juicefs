@@ -1,0 +1,153 @@
+name: Build and publish Python SDK wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub release tag
+        required: true
+        default: juicefs-1.4.1-unc1
+        type: string
+      package_version:
+        description: Python package version
+        required: true
+        default: 1.4.1+unc1
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: 1.21.13
+  PACKAGE_VERSION: \${{ inputs.package_version }}
+  RELEASE_TAG: \${{ inputs.release_tag }}
+
+jobs:
+  build:
+    name: Build \${{ matrix.name }}
+    runs-on: \${{ matrix.runner }}
+    container: \${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manylinux2014_x86_64
+            runner: ubuntu-24.04
+            container: quay.io/pypa/manylinux2014_x86_64
+            platform_tag: manylinux2014_x86_64
+            python_command: /opt/python/cp39-cp39/bin/python
+          - name: manylinux2014_aarch64
+            runner: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux2014_aarch64
+            platform_tag: manylinux2014_aarch64
+            python_command: /opt/python/cp39-cp39/bin/python
+          - name: macosx_11_0_arm64
+            runner: macos-14
+            container: ""
+            platform_tag: macosx_11_0_arm64
+            python_command: python
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: yum install -y gcc git make
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: \${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Set up Python
+        if: runner.os == 'macOS'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python build tools
+        env:
+          PYTHON_COMMAND: \${{ matrix.python_command }}
+        run: "\${PYTHON_COMMAND}" -m pip install --upgrade build wheel
+
+      - name: Build libjfs
+        env:
+          CGO_ENABLED: "1"
+        run: make -C sdk/python libjfs
+
+      - name: Set package version
+        env:
+          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
+          PYTHON_COMMAND: \${{ matrix.python_command }}
+        run: |
+          "\${PYTHON_COMMAND}" - "\${PACKAGE_VERSION}" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path("sdk/python/juicefs/setup.py")
+          contents = path.read_text()
+          old = 'VERSION = "1.4.1"'
+          new = f'VERSION = "{sys.argv[1]}"'
+          if contents.count(old) != 1:
+              raise SystemExit("setup.py does not contain the pinned 1.4.1 version")
+          path.write_text(contents.replace(old, new, 1))
+          PY
+
+      - name: Build wheel
+        env:
+          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
+          PLATFORM_TAG: \${{ matrix.platform_tag }}
+          PYTHON_COMMAND: \${{ matrix.python_command }}
+        run: |
+          rm -rf dist
+          "\${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
+          "\${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "\${PLATFORM_TAG}" "dist/juicefs-\${PACKAGE_VERSION}-py3-none-any.whl"
+          test -f "dist/juicefs-\${PACKAGE_VERSION}-py3-none-\${PLATFORM_TAG}.whl"
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-\${{ matrix.name }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish release assets
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate wheel set
+        env:
+          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
+        run: |
+          for platform in manylinux2014_x86_64 manylinux2014_aarch64 macosx_11_0_arm64; do
+            test -f "dist/juicefs-\${PACKAGE_VERSION}-py3-none-\${platform}.whl"
+          done
+          test "\$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 3
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: \${{ github.token }}
+          PACKAGE_VERSION: \${{ env.PACKAGE_VERSION }}
+          RELEASE_TAG: \${{ env.RELEASE_TAG }}
+        run: |
+          if gh release view "\${RELEASE_TAG}" --repo "\${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "\${RELEASE_TAG}" dist/*.whl --repo "\${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "\${RELEASE_TAG}" dist/*.whl \
+              --repo "\${GITHUB_REPOSITORY}" \
+              --target master \
+              --title "JuiceFS \${PACKAGE_VERSION}" \
+              --notes "Python SDK wheels for \${PACKAGE_VERSION}."
+          fi
