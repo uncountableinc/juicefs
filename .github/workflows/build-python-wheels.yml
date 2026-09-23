@@ -1,4 +1,4 @@
-name: Build and publish Python SDK wheels
+name: Build and publish JuiceFS SDK wheels and CLI
 
 on:
   workflow_dispatch:
@@ -93,15 +93,16 @@ jobs:
         run: |
           "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
 
-      - name: Build Linux wheel
+      - name: Build Linux wheel and CLI tarball
         if: runner.os == 'Linux'
         env:
           BUILD_IMAGE: ${{ matrix.build_image }}
           GO_ARCH: ${{ matrix.go_arch }}
           PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
           PLATFORM_TAG: ${{ matrix.platform_tag }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             "${BUILD_IMAGE}"             bash -euo pipefail -c '
+          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             --env RELEASE_TAG             "${BUILD_IMAGE}"             bash -euo pipefail -c '
               yum install -y gcc git make curl
               curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz
               tar -C /usr/local -xzf /tmp/go.tar.gz
@@ -115,6 +116,10 @@ jobs:
               "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
               "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
               test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${PLATFORM_TAG}.whl"
+              go build -buildvcs=false -ldflags="${LDFLAGS}" -o dist/juicefs .
+              dist/juicefs --version
+              tar -czf "dist/${RELEASE_TAG}-linux-${GO_ARCH}.tar.gz" -C dist juicefs
+              rm dist/juicefs
             '
 
       - name: Build macOS wheel
@@ -138,26 +143,44 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
+      - name: Upload CLI tarball
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.name }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Publish release assets
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - name: Download wheels
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: wheel-*
+          pattern: "{wheel-*,cli-*}"
           path: dist
           merge-multiple: true
 
-      - name: Validate wheel set
+      - name: Validate artifact set
         env:
           PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           for platform in manylinux2014_x86_64 manylinux2014_aarch64 macosx_11_0_arm64; do
             test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${platform}.whl"
           done
           test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 3
+          for arch in amd64 arm64; do
+            test -f "dist/${RELEASE_TAG}-linux-${arch}.tar.gz"
+          done
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 2
+
+      - name: Record artifact checksums
+        run: |
+          cd dist
+          sha256sum *.whl *.tar.gz | tee checksums.txt
 
       - name: Publish release assets
         env:
@@ -166,11 +189,11 @@ jobs:
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" dist/*.whl --repo "${GITHUB_REPOSITORY}" --clobber
+            gh release upload "${RELEASE_TAG}" dist/*.whl dist/*.tar.gz dist/checksums.txt --repo "${GITHUB_REPOSITORY}" --clobber
           else
-            gh release create "${RELEASE_TAG}" dist/*.whl \
+            gh release create "${RELEASE_TAG}" dist/*.whl dist/*.tar.gz dist/checksums.txt \
               --repo "${GITHUB_REPOSITORY}" \
               --target master \
               --title "JuiceFS ${PACKAGE_VERSION}" \
-              --notes "Python SDK wheels for ${PACKAGE_VERSION}."
+              --notes "Python SDK wheels and Linux CLI binaries for ${PACKAGE_VERSION}."
           fi
