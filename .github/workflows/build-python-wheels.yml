@@ -21,10 +21,17 @@ env:
   RELEASE_TAG: ${{ inputs.release_tag }}
 
 jobs:
-  check-release-tag:
-    name: Require a new release tag
+  preflight:
+    name: Require master and a new release tag
     runs-on: ubuntu-24.04
     steps:
+      - name: Fail when the dispatch ref is not master
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/master" ]; then
+            echo "::error::Dispatch this workflow from master. The selected ref is ${GITHUB_REF}."
+            exit 1
+          fi
+
       - name: Fail when the release tag already exists
         env:
           GH_TOKEN: ${{ github.token }}
@@ -38,7 +45,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.name }}
-    needs: check-release-tag
+    needs: preflight
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
