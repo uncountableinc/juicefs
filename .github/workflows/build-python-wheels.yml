@@ -6,12 +6,10 @@ on:
       release_tag:
         description: GitHub release tag
         required: true
-        default: juicefs-1.4.1-unc1
         type: string
       package_version:
         description: Python package version
         required: true
-        default: 1.4.1+unc1
         type: string
 
 permissions:
@@ -23,8 +21,31 @@ env:
   RELEASE_TAG: ${{ inputs.release_tag }}
 
 jobs:
+  preflight:
+    name: Require master and a new release tag
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail when the dispatch ref is not master
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/master" ]; then
+            echo "::error::Dispatch this workflow from master. The selected ref is ${GITHUB_REF}."
+            exit 1
+          fi
+
+      - name: Fail when the release tag already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${RELEASE_TAG}" --jq "[.[] | select(.ref == \"refs/tags/${RELEASE_TAG}\")] | length")"
+          if [ "${existing}" != "0" ]; then
+            echo "::error::Tag ${RELEASE_TAG} already exists. Published release assets must not change, so dispatch with a new release_tag and package_version."
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.name }}
+    needs: preflight
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -32,13 +53,13 @@ jobs:
         include:
           - name: manylinux2014_x86_64
             runner: ubuntu-24.04
-            build_image: quay.io/pypa/manylinux2014_x86_64
+            build_image: quay.io/pypa/manylinux2014_x86_64:2026.09.23-1@sha256:2fa5f99f660f115f547d96b4edcadfc19f77a6de8807734bf0fc4924f81be01a
             go_arch: amd64
             platform_tag: manylinux2014_x86_64
             host_python_command: python3
           - name: manylinux2014_aarch64
             runner: ubuntu-24.04-arm
-            build_image: quay.io/pypa/manylinux2014_aarch64
+            build_image: quay.io/pypa/manylinux2014_aarch64:2026.09.23-1@sha256:47940daeb8e0fdcc7deefad334bfda3d8d12b447ba1ebd5411f9f106318eafdb
             go_arch: arm64
             platform_tag: manylinux2014_aarch64
             host_python_command: python3
@@ -52,8 +73,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: master
+
+      - name: Set reproducible build timestamp
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "${GITHUB_ENV}"
 
       - name: Set up Go
         if: runner.os == 'macOS'
@@ -105,7 +127,7 @@ jobs:
         run: |
           REVISION_DATE="$(date -u +%Y-%m-%d)"
           export REVISION_DATE
-          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             --env RELEASE_TAG             --env GITHUB_SHA             --env REVISION_DATE             "${BUILD_IMAGE}"             bash -euo pipefail -c '
+          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             --env RELEASE_TAG             --env GITHUB_SHA             --env REVISION_DATE             --env SOURCE_DATE_EPOCH             "${BUILD_IMAGE}"             bash -euo pipefail -c '
               yum install -y gcc git make curl
               curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz
               tar -C /usr/local -xzf /tmp/go.tar.gz
@@ -193,12 +215,8 @@ jobs:
           PACKAGE_VERSION: ${{ env.PACKAGE_VERSION }}
           RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" dist/*.whl dist/*.tar.gz dist/checksums.txt --repo "${GITHUB_REPOSITORY}" --clobber
-          else
-            gh release create "${RELEASE_TAG}" dist/*.whl dist/*.tar.gz dist/checksums.txt \
-              --repo "${GITHUB_REPOSITORY}" \
-              --target master \
-              --title "JuiceFS ${PACKAGE_VERSION}" \
-              --notes "Python SDK wheels and Linux CLI binaries for ${PACKAGE_VERSION}."
-          fi
+          gh release create "${RELEASE_TAG}" dist/*.whl dist/*.tar.gz dist/checksums.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "JuiceFS ${PACKAGE_VERSION}" \
+            --notes "Python SDK wheels and Linux CLI binaries for ${PACKAGE_VERSION}."
