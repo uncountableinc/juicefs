@@ -599,7 +599,11 @@ func jfs_init(credentialPtr uintptr, count int32, cname, cjsonConf, cuser, group
 		metaConf.NoBGJob = jConf.NoBGJob || jConf.NoSession
 		metaConf.OpenCache = utils.Duration(jConf.OpenCache)
 		metaConf.Heartbeat = utils.Duration(jConf.Heartbeat)
-		m := meta.NewClient(jConf.MetaURL, metaConf)
+		m, err := meta.NewClientOrError(jConf.MetaURL, metaConf)
+		if err != nil {
+			logger.Errorf("new meta client: %s", err)
+			return nil
+		}
 		format, err := m.Load(true)
 		if err != nil {
 			logger.Errorf("load setting: %s", err)
