@@ -163,6 +163,27 @@ jobs:
           "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
           test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${PLATFORM_TAG}.whl"
 
+      - name: Build macOS CLI tarballs
+        if: runner.os == 'macOS'
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          export CGO_ENABLED=1
+          REVISION_DATE="$(date -u +%Y-%m-%d)"
+          VERSION_PKG="github.com/juicedata/juicefs/pkg/version"
+          CLI_LDFLAGS="-s -w -X ${VERSION_PKG}.revision=${GITHUB_SHA:0:7} -X ${VERSION_PKG}.revisionDate=${REVISION_DATE}"
+          for target in arm64:arm64 amd64:x86_64; do
+            go_arch="${target%%:*}"
+            machine_arch="${target##*:}"
+            GOARCH="${go_arch}" CC="clang -arch ${machine_arch}" go build -buildvcs=false -ldflags="${CLI_LDFLAGS}" -o dist/juicefs .
+            test "$(lipo -archs dist/juicefs)" = "${machine_arch}"
+            if [ "${machine_arch}" = "$(uname -m)" ]; then
+              dist/juicefs --version | grep -q "${GITHUB_SHA:0:7}"
+            fi
+            tar -czf "dist/${RELEASE_TAG}-darwin-${go_arch}.tar.gz" -C dist juicefs
+            rm dist/juicefs
+          done
+
       - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
@@ -171,7 +192,6 @@ jobs:
           if-no-files-found: error
 
       - name: Upload CLI tarball
-        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.name }}
@@ -199,10 +219,10 @@ jobs:
             test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${platform}.whl"
           done
           test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 3
-          for arch in amd64 arm64; do
-            test -f "dist/${RELEASE_TAG}-linux-${arch}.tar.gz"
+          for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            test -f "dist/${RELEASE_TAG}-${target}.tar.gz"
           done
-          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 2
+          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 4
 
       - name: Record artifact checksums
         run: |
@@ -219,4 +239,4 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "JuiceFS ${PACKAGE_VERSION}" \
-            --notes "Python SDK wheels and Linux CLI binaries for ${PACKAGE_VERSION}."
+            --notes "Python SDK wheels and Linux and macOS CLI binaries for ${PACKAGE_VERSION}."
