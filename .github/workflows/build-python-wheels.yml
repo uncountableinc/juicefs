@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 env:
-  GO_VERSION: 1.21.13
+  GO_VERSION: 1.26.10
   PACKAGE_VERSION: ${{ inputs.package_version }}
   RELEASE_TAG: ${{ inputs.release_tag }}
 
