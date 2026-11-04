@@ -17,6 +17,7 @@ permissions:
 
 env:
   GO_VERSION: 1.26.10
+  GO_BUILD_TAGS: nogateway,nowebdav
   PACKAGE_VERSION: ${{ inputs.package_version }}
   RELEASE_TAG: ${{ inputs.release_tag }}
 
@@ -127,7 +128,7 @@ jobs:
         run: |
           REVISION_DATE="$(date -u +%Y-%m-%d)"
           export REVISION_DATE
-          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             --env RELEASE_TAG             --env GITHUB_SHA             --env REVISION_DATE             --env SOURCE_DATE_EPOCH             "${BUILD_IMAGE}"             bash -euo pipefail -c '
+          docker run --rm             --volume "${GITHUB_WORKSPACE}:/workspace"             --workdir /workspace             --env GO_ARCH             --env GO_BUILD_TAGS             --env GO_VERSION             --env PACKAGE_VERSION             --env PLATFORM_TAG             --env RELEASE_TAG             --env GITHUB_SHA             --env REVISION_DATE             --env SOURCE_DATE_EPOCH             "${BUILD_IMAGE}"             bash -euo pipefail -c '
               yum install -y gcc git make curl
               curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz
               tar -C /usr/local -xzf /tmp/go.tar.gz
@@ -136,14 +137,14 @@ jobs:
               PYTHON_COMMAND="/opt/python/cp39-cp39/bin/python"
               "${PYTHON_COMMAND}" -m pip install --upgrade build wheel
               LDFLAGS="-s -w"
-              go build -buildmode c-shared -buildvcs=false -ldflags="${LDFLAGS}" -o sdk/python/juicefs/juicefs/libjfs.so ./sdk/java/libjfs
+              go build -tags "${GO_BUILD_TAGS}" -buildmode c-shared -buildvcs=false -ldflags="${LDFLAGS}" -o sdk/python/juicefs/juicefs/libjfs.so ./sdk/java/libjfs
               rm -rf dist
               "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
               "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
               test -f "dist/juicefs-${PACKAGE_VERSION}-py3-none-${PLATFORM_TAG}.whl"
               VERSION_PKG="github.com/juicedata/juicefs/pkg/version"
               CLI_LDFLAGS="${LDFLAGS} -X ${VERSION_PKG}.revision=${GITHUB_SHA:0:7} -X ${VERSION_PKG}.revisionDate=${REVISION_DATE}"
-              go build -buildvcs=false -ldflags="${CLI_LDFLAGS}" -o dist/juicefs .
+              go build -tags "${GO_BUILD_TAGS}" -buildvcs=false -ldflags="${CLI_LDFLAGS}" -o dist/juicefs .
               dist/juicefs --version | grep -q "${GITHUB_SHA:0:7}"
               tar -czf "dist/${RELEASE_TAG}-linux-${GO_ARCH}.tar.gz" -C dist juicefs
               rm dist/juicefs
@@ -157,7 +158,7 @@ jobs:
           PYTHON_COMMAND: ${{ matrix.host_python_command }}
         run: |
           export CGO_ENABLED=1
-          go build -buildmode c-shared -buildvcs=false -ldflags="-s -w" -o sdk/python/juicefs/juicefs/libjfs.dylib ./sdk/java/libjfs
+          go build -tags "${GO_BUILD_TAGS}" -buildmode c-shared -buildvcs=false -ldflags="-s -w" -o sdk/python/juicefs/juicefs/libjfs.dylib ./sdk/java/libjfs
           rm -rf dist
           "${PYTHON_COMMAND}" -m build --wheel --outdir dist sdk/python/juicefs
           "${PYTHON_COMMAND}" -m wheel tags --remove --platform-tag "${PLATFORM_TAG}" "dist/juicefs-${PACKAGE_VERSION}-py3-none-any.whl"
@@ -175,7 +176,7 @@ jobs:
           for target in arm64:arm64 amd64:x86_64; do
             go_arch="${target%%:*}"
             machine_arch="${target##*:}"
-            GOARCH="${go_arch}" CC="clang -arch ${machine_arch}" go build -buildvcs=false -ldflags="${CLI_LDFLAGS}" -o dist/juicefs .
+            GOARCH="${go_arch}" CC="clang -arch ${machine_arch}" go build -tags "${GO_BUILD_TAGS}" -buildvcs=false -ldflags="${CLI_LDFLAGS}" -o dist/juicefs .
             test "$(lipo -archs dist/juicefs)" = "${machine_arch}"
             if [ "${machine_arch}" = "$(uname -m)" ]; then
               dist/juicefs --version | grep -q "${GITHUB_SHA:0:7}"
@@ -239,4 +240,4 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "JuiceFS ${PACKAGE_VERSION}" \
-            --notes "Python SDK wheels and Linux and macOS CLI binaries for ${PACKAGE_VERSION}."
+            --notes "Python SDK wheels and Linux and macOS CLI binaries for ${PACKAGE_VERSION}, built with the ${GO_BUILD_TAGS} build tags."
