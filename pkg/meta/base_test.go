@@ -187,6 +187,7 @@ func testMeta(t *testing.T, m Meta) {
 	testCopyFileRange(t, m)
 	testCloseSession(t, m)
 	testConcurrentDir(t, m)
+	testConcurrentResolveCreate(t, m)
 	testAttrFlags(t, m)
 	testQuota(t, m)
 	testUserGroupQuota(t, m)
@@ -2730,6 +2731,34 @@ func testConcurrentDir(t *testing.T, m Meta) {
 		}(i)
 	}
 	g.Wait()
+}
+
+func testConcurrentResolveCreate(t *testing.T, m Meta) {
+	ctx := Background()
+	var g sync.WaitGroup
+	start := make(chan struct{})
+	errs := make(chan error, 100)
+	for i := 0; i < 100; i++ {
+		g.Add(1)
+		go func(i int) {
+			defer g.Done()
+			<-start
+			var inode Ino
+			dpath := fmt.Sprintf("/resolve-create/sub%d", i)
+			if st := m.getBase().resolve(ctx, dpath, &inode, true); st != 0 {
+				errs <- fmt.Errorf("resolve %s: %s", dpath, st)
+			}
+		}(i)
+	}
+	close(start)
+	g.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	if st := m.Remove(ctx, RootInode, "resolve-create", true, RmrDefaultThreads, nil); st != 0 {
+		t.Fatalf("remove resolve-create: %s", st)
+	}
 }
 
 func testAttrFlags(t *testing.T, m Meta) {
