@@ -1117,6 +1117,15 @@ func jfs_rmr(pid int64, h int64, cpath *C.char) int32 {
 	return errno(w.Rmr(w.withPid(pid), C.GoString(cpath), false, MaxDeletes))
 }
 
+//export jfs_rmr_skip_trash
+func jfs_rmr_skip_trash(pid int64, h int64, cpath *C.char) int32 {
+	w := F(h)
+	if w == nil {
+		return EINVAL
+	}
+	return errno(w.Rmr(w.withPid(pid), C.GoString(cpath), true, MaxDeletes))
+}
+
 //export jfs_rename
 func jfs_rename(pid int64, h int64, oldpath *C.char, newpath *C.char) int32 {
 	return jfs_rename0(pid, h, oldpath, newpath, meta.RenameNoReplace)

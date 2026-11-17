@@ -336,6 +336,9 @@ class Client(object):
         """Remove a directory and all its contents recursively."""
         self.lib.jfs_rmr(c_int64(_tid()), c_int64(self.h), _bin(path))
 
+    def rmr_skip_trash(self, path):
+        self.lib.jfs_rmr_skip_trash(c_int64(_tid()), c_int64(self.h), _bin(path))
+
     def utime(self, path, times=None):
         """Set the access and modified times of a file."""
         if not times:
