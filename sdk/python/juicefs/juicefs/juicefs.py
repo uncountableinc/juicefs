@@ -726,12 +726,17 @@ def test():
     v.rmr("/trash")
     trash_entries = v.listdir("/.trash")
     assert trash_entries
+    trash_contents = {
+        entry: v.listdir(f"/.trash/{entry}") for entry in trash_entries
+    }
     v.makedirs("/skip-trash")
     with v.open("/skip-trash/file", "w") as f:
         f.write("temporary")
     v.rmr_skip_trash("/skip-trash")
     assert not v.exists("/skip-trash")
-    assert v.listdir("/.trash") == trash_entries
+    assert {
+        entry: v.listdir(f"/.trash/{entry}") for entry in trash_entries
+    } == trash_contents
     v.makedirs("/d")
     if v.exists("/d/file"):
         v.remove("/d/file")
