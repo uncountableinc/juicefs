@@ -720,12 +720,18 @@ def test():
     print(st)
     if v.exists("/d"):
         v.rmr_skip_trash("/d")
+    v.makedirs("/trash")
+    with v.open("/trash/file", "w") as f:
+        f.write("temporary")
+    v.rmr("/trash")
+    trash_entries = v.listdir("/.trash")
+    assert trash_entries
     v.makedirs("/skip-trash")
     with v.open("/skip-trash/file", "w") as f:
         f.write("temporary")
     v.rmr_skip_trash("/skip-trash")
     assert not v.exists("/skip-trash")
-    assert not v.exists("/.trash")
+    assert v.listdir("/.trash") == trash_entries
     v.makedirs("/d")
     if v.exists("/d/file"):
         v.remove("/d/file")
