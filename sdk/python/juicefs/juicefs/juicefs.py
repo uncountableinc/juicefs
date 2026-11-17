@@ -21,6 +21,7 @@ import json
 import locale
 import os
 import pwd
+import stat
 import sys
 import six
 import struct
@@ -335,6 +336,9 @@ class Client(object):
     def rmr(self, path):
         """Remove a directory and all its contents recursively."""
         self.lib.jfs_rmr(c_int64(_tid()), c_int64(self.h), _bin(path))
+
+    def rmr_skip_trash(self, path):
+        self.lib.jfs_rmr_skip_trash(c_int64(_tid()), c_int64(self.h), _bin(path))
 
     def utime(self, path, times=None):
         """Set the access and modified times of a file."""
@@ -716,7 +720,29 @@ def test():
     st = v.stat("/")
     print(st)
     if v.exists("/d"):
-        v.rmr("/d")
+        v.rmr_skip_trash("/d")
+    v.makedirs("/trash")
+    with v.open("/trash/file", "w") as f:
+        f.write("temporary")
+    v.rmr("/trash")
+
+    def list_trash_tree(path):
+        tree = []
+        for name, entry_stat in v.listdir(path, detail=True):
+            entry_path = f"{path}/{name}"
+            tree.append(entry_path)
+            if stat.S_ISDIR(entry_stat.st_mode):
+                tree.extend(list_trash_tree(entry_path))
+        return tree
+
+    trash_tree = list_trash_tree("/.trash")
+    assert trash_tree
+    v.makedirs("/skip-trash")
+    with v.open("/skip-trash/file", "w") as f:
+        f.write("temporary")
+    v.rmr_skip_trash("/skip-trash")
+    assert not v.exists("/skip-trash")
+    assert list_trash_tree("/.trash") == trash_tree
     v.makedirs("/d")
     if v.exists("/d/file"):
         v.remove("/d/file")
