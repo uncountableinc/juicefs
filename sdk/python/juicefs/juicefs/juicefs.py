@@ -21,6 +21,7 @@ import json
 import locale
 import os
 import pwd
+import stat
 import sys
 import six
 import struct
@@ -724,19 +725,24 @@ def test():
     with v.open("/trash/file", "w") as f:
         f.write("temporary")
     v.rmr("/trash")
-    trash_entries = v.listdir("/.trash")
-    assert trash_entries
-    trash_contents = {
-        entry: v.listdir(f"/.trash/{entry}") for entry in trash_entries
-    }
+
+    def list_trash_tree(path):
+        tree = []
+        for name, entry_stat in v.listdir(path, detail=True):
+            entry_path = f"{path}/{name}"
+            tree.append(entry_path)
+            if stat.S_ISDIR(entry_stat.st_mode):
+                tree.extend(list_trash_tree(entry_path))
+        return tree
+
+    trash_tree = list_trash_tree("/.trash")
+    assert trash_tree
     v.makedirs("/skip-trash")
     with v.open("/skip-trash/file", "w") as f:
         f.write("temporary")
     v.rmr_skip_trash("/skip-trash")
     assert not v.exists("/skip-trash")
-    assert {
-        entry: v.listdir(f"/.trash/{entry}") for entry in trash_entries
-    } == trash_contents
+    assert list_trash_tree("/.trash") == trash_tree
     v.makedirs("/d")
     if v.exists("/d/file"):
         v.remove("/d/file")
