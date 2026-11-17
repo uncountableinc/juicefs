@@ -719,7 +719,13 @@ def test():
     st = v.stat("/")
     print(st)
     if v.exists("/d"):
-        v.rmr("/d")
+        v.rmr_skip_trash("/d")
+    v.makedirs("/skip-trash")
+    with v.open("/skip-trash/file", "w") as f:
+        f.write("temporary")
+    v.rmr_skip_trash("/skip-trash")
+    assert not v.exists("/skip-trash")
+    assert not v.exists("/.trash")
     v.makedirs("/d")
     if v.exists("/d/file"):
         v.remove("/d/file")
