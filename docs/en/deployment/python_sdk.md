@@ -96,6 +96,16 @@ jfs = Client(name='', meta='redis://192.168.1.8/0')
 jfs.listdir('/')
 ```
 
+The client accepts `max_downloads` to limit concurrent downloads. The default value is `200`.
+JuiceFS log records use the Python logger named `juicefs`.
+
+```python
+import logging
+
+logging.getLogger('juicefs').setLevel(logging.WARNING)
+jfs = Client(name='', meta='redis://192.168.1.8/0', max_downloads=200)
+```
+
 ### Using fsspec
 
 JuiceFS Python SDK also supports the `fsspec` interface to operate the JuiceFS file system.
