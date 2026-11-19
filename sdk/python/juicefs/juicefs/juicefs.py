@@ -19,6 +19,7 @@ import grp
 import io
 import json
 import locale
+import logging
 import os
 import pwd
 import sys
@@ -27,6 +28,25 @@ import struct
 import threading
 import time
 from ctypes import *
+
+_LOGGER = logging.getLogger("juicefs")
+_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+
+def _log_callback(message):
+    message_text = message.decode().rstrip()
+    level_name = message_text.split(maxsplit=4)[3][1:-2]
+    _LOGGER.log(_LOG_LEVELS[level_name], message_text)
+
+
+_LOG_CALLBACK_TYPE = CFUNCTYPE(None, c_char_p)
+_LOG_CALLBACK = _LOG_CALLBACK_TYPE(_log_callback)
 
 # pkg/vfs/helpers.go
 MODE_WRITE = 2
@@ -91,7 +111,10 @@ class JuiceFSLib(object):
 
     def __getattr__(self, n):
         fn = getattr(self.lib, n)
-        if n == "jfs_init" or n == "jfs_lseek":
+        if n == "jfs_set_callback":
+            fn.argtypes = [_LOG_CALLBACK_TYPE]
+            fn.restype = None
+        elif n == "jfs_init" or n == "jfs_lseek":
             fn.restype = c_int64
             fn.errcheck = check_error
         elif n.startswith("jfs"):
@@ -106,12 +129,14 @@ class Client(object):
                  cache_dir="memory", cache_size="100M", free_space_ratio="0.1", cache_partial_only=False,
                  verify_cache_checksum="extend", cache_eviction="2-random", cache_scan_interval="3600", cache_expire="0",
                  writeback=False, buffer_size="300M", prefetch=1, max_readahead="0", upload_limit="0",
-                 download_limit="0", max_uploads=20, max_deletes=10, skip_dir_nlink=20, skip_dir_mtime="100ms",
+                 download_limit="0", max_uploads=20, max_downloads=200, max_deletes=10, skip_dir_nlink=20,
+                 skip_dir_mtime="100ms",
                  io_retries=10, get_timeout="5", put_timeout="60", fast_resolve=False, attr_cache="1s",
                  entry_cache="0s", dir_entry_cache="1s", debug=False, no_usage_report=False, access_log="",
                  push_gateway="", push_interval="10", push_auth="", push_labels="", push_graphite="", push_remote_write="", 
                  push_remote_write_auth=""):
         self.lib = JuiceFSLib()
+        self.lib.jfs_set_callback(_LOG_CALLBACK)
         kwargs = {}
         kwargs["meta"] = meta
         kwargs["bucket"] = bucket
@@ -139,6 +164,7 @@ class Client(object):
         kwargs["uploadLimit"] = upload_limit
         kwargs["downloadLimit"] = download_limit
         kwargs["maxUploads"] = max_uploads
+        kwargs["maxDownloads"] = max_downloads
         kwargs["maxDeletes"] = max_deletes
         kwargs["skipDirNlink"] = skip_dir_nlink
         kwargs["skipDirMtime"] = skip_dir_mtime
